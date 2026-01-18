@@ -6,3 +6,7 @@ Testing:
 
 - Unit tests are done inside each module (see big_int as an example)
 - Algorithm testing is done against openssl as a standard
+
+Components:
+- big_int an implmentation of unsigned integer operations for integers of large size
+- aes an implmentation of the aes symetric encryption algorithim

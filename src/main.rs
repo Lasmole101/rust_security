@@ -1,10 +1,15 @@
+use crate::aes::STATE;
+
 mod aes;
-mod big_int;
 
 fn main() {
     let test_key = aes::Key {
         bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     };
 
-    aes::Key::expand(test_key);
+    let data: [u8; 16] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let mut test_state: STATE = aes::STATE::init(test_key);
+
+    test_state.update(&data, 16);
 }

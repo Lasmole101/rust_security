@@ -3,49 +3,71 @@ use std::ops::BitXor;
 
 /**
 * This is an implementation of the AES encryption algorithim
-* It has a block size of 16 bytes and currently assumes a key size of 16 bytes as well
+* It has a block size of 16 bytes and currently assumes a key size of 16 bytes as well.
 */
+
+///Fixed key size for AES-128 for now
 const KEY_SIZE: u8 = 16;
+
+///Constants used for key arithmetic in AES
 const KEY_CONST_1: u16 = (0x1 << 8) + 0x1B;
 const KEY_CONST_2: u16 = (0x01 << 8) + 0x00;
 
+///A struct to hold the key
 pub union Key {
     pub bytes: [u8; 16],
     words: [AESWord; 4],
 }
 
 impl Key {
+    /// This function generates the first 10 round constants
     fn generate_rconi() -> [AESWord; 10] {
-        let mut rconi: [AESWord; 10] = [AESWord([0, 0, 0, 0]); 10];
-        rconi[0] = AESWord([1, 0, 0, 0]);
+        let mut rconi: [AESWord; 10] = [AESWord {
+            bytes: [0, 0, 0, 0],
+        }; 10];
+        rconi[0] = AESWord {
+            bytes: [1, 0, 0, 0],
+        };
 
         for i in 1..10 {
-            if rconi[i - 1].0[0] < 0x80 {
-                rconi[i] = AESWord([2 * rconi[i - 1].get_0th(), 0, 0, 0]);
+            if unsafe { rconi[i - 1].bytes[0] < 0x80 } {
+                rconi[i] = AESWord {
+                    bytes: [2 * rconi[i - 1].get_0th(), 0, 0, 0],
+                };
             } else {
-                rconi[i] = AESWord([
-                    ((((2 * (rconi[i - 1].get_0th() as u16)) ^ KEY_CONST_1) % KEY_CONST_2) as u8),
-                    0,
-                    0,
-                    0,
-                ]);
+                rconi[i] = AESWord {
+                    bytes: [
+                        unsafe {
+                            ((((2 * (rconi[i - 1].bytes[0] as u16)) ^ KEY_CONST_1) % KEY_CONST_2)
+                                as u8)
+                        },
+                        0,
+                        0,
+                        0,
+                    ],
+                };
             }
         }
 
         return rconi;
     }
 
-    pub fn expand(self: Self) -> [AESWord; 44] {
+    pub fn expand(&self) -> [AESWord; 44] {
         let rconi: [AESWord; 10] = Self::generate_rconi();
 
-        let mut expanded_words: [AESWord; 44] = [AESWord([0, 0, 0, 0]); 44];
+        let mut expanded_words: [AESWord; 44] = [AESWord {
+            bytes: [0, 0, 0, 0],
+        }; 44];
 
         for i in 0..44 {
             if i < 4 {
-                expanded_words[i] = unsafe { self.words[i] };
+                expanded_words[i] = unsafe { self.words[i].clone() };
             } else if i % 4 == 0 {
                 expanded_words[i] = expanded_words[i - 4]
-                    ^ expanded_words[i - 1].rot_word_left().sub_word()
+                    ^ AESWord {
+                        num: unsafe { expanded_words[i - 1].num.rotate_left(8) },
+                    }
+                    .sub_word()
                     ^ rconi[(i / 4) - 1];
             } else {
                 expanded_words[i] = expanded_words[i - 4] ^ expanded_words[i - 1];
@@ -56,28 +78,31 @@ impl Key {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-struct AESWord([u8; 4]);
+#[derive(Copy, Clone)]
+union AESWord {
+    bytes: [u8; 4],
+    num: u32,
+}
 
 impl AESWord {
     pub fn get_0th(self: Self) -> u8 {
-        return self.0[0];
-    }
-
-    pub fn rot_word_left(self: Self) -> AESWord {
-        return AESWord([self.0[1], self.0[2], self.0[3], self.0[0]]);
+        return unsafe { self.bytes[0] };
     }
 
     pub fn sub_word(self: Self) -> AESWord {
-        return AESWord([
-            s_box_lookup(self.0[0]),
-            s_box_lookup(self.0[1]),
-            s_box_lookup(self.0[2]),
-            s_box_lookup(self.0[3]),
-        ]);
+        return AESWord {
+            bytes: [
+                unsafe { s_box_lookup(self.bytes[0]) },
+                unsafe { s_box_lookup(self.bytes[1]) },
+                unsafe { s_box_lookup(self.bytes[2]) },
+                unsafe { s_box_lookup(self.bytes[3]) },
+            ],
+        };
     }
     pub fn zeroes() -> AESWord {
-        return AESWord([0, 0, 0, 0]);
+        return AESWord {
+            bytes: [0, 0, 0, 0],
+        };
     }
 }
 
@@ -85,12 +110,7 @@ impl BitXor for AESWord {
     type Output = Self;
     fn bitxor(self, rhs: Self) -> Self {
         Self {
-            0: ([
-                self.0[0] ^ rhs.0[0],
-                self.0[1] ^ rhs.0[1],
-                self.0[2] ^ rhs.0[2],
-                self.0[3] ^ rhs.0[3],
-            ]),
+            num: unsafe { self.num ^ rhs.num },
         }
     }
 }
@@ -166,7 +186,7 @@ impl STATE {
         }
     }
 
-    pub fn update(mut self: Self, new_data: &[u8], len: usize) {
+    pub fn update(&mut self, new_data: &[u8], len: usize) {
         if len > 16 {
             println!("too big");
         } else {
@@ -179,7 +199,72 @@ impl STATE {
         }
     }
 
-    pub fn encrypt(self: Self, output_buffer: &[u8]) {
-        let expanded_key: [AESWord; 44] = self.key.expand();
+    fn add_round_key(&mut self, key_start_index: usize) {
+        for i in 0..3 {
+            unsafe {
+                self.data.words[i] = self.data.words[i] ^ self.key.words[key_start_index + i]
+            };
+        }
+    }
+
+    fn sub_bytes(&mut self) {
+        unsafe { self.data.words[0].sub_word() };
+        unsafe { self.data.words[1].sub_word() };
+        unsafe { self.data.words[2].sub_word() };
+        unsafe { self.data.words[3].sub_word() };
+    }
+
+    fn shift_rows(&mut self) {
+        unsafe { self.data.words[1].num = self.data.words[1].num.rotate_left(8) };
+        unsafe { self.data.words[2].num = self.data.words[2].num.rotate_left(16) };
+        unsafe { self.data.words[3].num = self.data.words[3].num.rotate_left(24) };
+    }
+
+    fn mix_columns(&mut self) {
+        for i in 0..3 {
+            let new_0th: u8 = unsafe {
+                self.data.words[0].bytes[i] << 2
+                    ^ (self.data.words[1].bytes[i] * 3)
+                    ^ (self.data.words[2].bytes[i])
+                    ^ (self.data.words[3].bytes[i])
+            };
+            let new_1st: u8 = unsafe {
+                self.data.words[0].bytes[i]
+                    ^ (self.data.words[1].bytes[i] << 2)
+                    ^ (self.data.words[2].bytes[i] * 3)
+                    ^ (self.data.words[3].bytes[i])
+            };
+            let new_2nd: u8 = unsafe {
+                self.data.words[0].bytes[i]
+                    ^ (self.data.words[1].bytes[i])
+                    ^ (self.data.words[2].bytes[i] << 2)
+                    ^ (self.data.words[3].bytes[i] * 3)
+            };
+            let new_3rd: u8 = unsafe {
+                self.data.words[0].bytes[i] * 3
+                    ^ (self.data.words[1].bytes[i])
+                    ^ (self.data.words[2].bytes[i])
+                    ^ (self.data.words[3].bytes[i] << 2)
+            };
+            unsafe { self.data.words[0].bytes[i] = new_0th };
+            unsafe { self.data.words[1].bytes[i] = new_1st };
+            unsafe { self.data.words[2].bytes[i] = new_2nd };
+            unsafe { self.data.words[3].bytes[i] = new_3rd };
+        }
+    }
+
+    pub fn encrypt(mut self: Self, output_buffer: &[u8]) {
+        // expand the key
+        let expanded_key: [AESWord; 44] = self.key.expand().clone();
+
+        // round 0
+        self.add_round_key(0);
+
+        for i in 1..10 {
+            self.sub_bytes();
+            self.shift_rows();
+            self.mix_columns();
+            self.add_round_key(4 * i + i * 3);
+        }
     }
 }

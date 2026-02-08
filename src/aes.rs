@@ -38,8 +38,8 @@ impl Key {
                 rconi[i] = AESWord {
                     bytes: [
                         unsafe {
-                            ((((2 * (rconi[i - 1].bytes[0] as u16)) ^ KEY_CONST_1) % KEY_CONST_2)
-                                as u8)
+                            (((2 * (rconi[i - 1].bytes[0] as u16)) ^ KEY_CONST_1) % KEY_CONST_2)
+                                as u8
                         },
                         0,
                         0,
@@ -49,7 +49,7 @@ impl Key {
             }
         }
 
-        return rconi;
+        rconi
     }
 
     pub fn expand(&self) -> [AESWord; 44] {
@@ -74,7 +74,7 @@ impl Key {
             }
         }
 
-        return expanded_words;
+        expanded_words
     }
 }
 
@@ -86,23 +86,23 @@ union AESWord {
 
 impl AESWord {
     pub fn get_0th(self: Self) -> u8 {
-        return unsafe { self.bytes[0] };
+        unsafe { self.bytes[0] }
     }
 
     pub fn sub_word(self: Self) -> AESWord {
-        return AESWord {
+        AESWord {
             bytes: [
                 unsafe { s_box_lookup(self.bytes[0]) },
                 unsafe { s_box_lookup(self.bytes[1]) },
                 unsafe { s_box_lookup(self.bytes[2]) },
                 unsafe { s_box_lookup(self.bytes[3]) },
             ],
-        };
+        }
     }
     pub fn zeroes() -> AESWord {
-        return AESWord {
+        AESWord {
             bytes: [0, 0, 0, 0],
-        };
+        }
     }
 }
 
@@ -169,6 +169,7 @@ union state_data {
 pub struct STATE {
     data: state_data,
     key: Key,
+    expanded_key: [AESWord; 44],
 }
 
 impl STATE {
@@ -183,6 +184,52 @@ impl STATE {
                 ],
             },
             key,
+            expanded_key: [
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+                AESWord::zeroes(),
+            ],
         }
     }
 
@@ -202,7 +249,7 @@ impl STATE {
     fn add_round_key(&mut self, key_start_index: usize) {
         for i in 0..3 {
             unsafe {
-                self.data.words[i] = self.data.words[i] ^ self.key.words[key_start_index + i]
+                self.data.words[i] = self.data.words[i] ^ self.expanded_key[key_start_index + i]
             };
         }
     }
@@ -253,9 +300,9 @@ impl STATE {
         }
     }
 
-    pub fn encrypt(mut self: Self, output_buffer: &[u8]) {
+    pub fn encrypt(&mut self, output_buffer: &[u8]) {
         // expand the key
-        let expanded_key: [AESWord; 44] = self.key.expand().clone();
+        self.expanded_key = self.key.expand().clone();
 
         // round 0
         self.add_round_key(0);
@@ -264,7 +311,7 @@ impl STATE {
             self.sub_bytes();
             self.shift_rows();
             self.mix_columns();
-            self.add_round_key(4 * i + i * 3);
+            self.add_round_key(4 * i);
         }
     }
 }
